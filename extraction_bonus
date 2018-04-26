@@ -1,0 +1,324 @@
+// Read Invitation Bonus
+
+// Keys are to be in "keys" spreadsheet. The key is in cell B5 and the secret in cell C5
+var activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+var sheet = activeSpreadsheet.getSheetByName("invitebonus");
+var key = sheet.getRange("B5").getValue();
+var secret = sheet.getRange("C5").getValue();
+var baseUrl = 'https://api.kucoin.com';
+  
+/**
+ * Used to retrieve the invitation bonus balance from your account for a specific currency.
+ * @param {string} a string literal for the currency (ex: LTC).
+ * @return the currency balance.
+ */
+
+function KCinviteGetbalance(payload) 
+{
+  var results = KCinviteRequest(payload);
+
+  return results.amount;
+};
+
+function KCinviteGetUDbalance(payload) 
+{
+  var results = KCinviteRequest(payload);
+
+  return results.undrawnAmount;
+};
+
+function KCinvitePrice(payload) 
+{
+  var results = KCPriceRequest(payload);
+
+  return results.lastdealprice;
+};
+
+function getKCBalance()
+{
+  var endpoint ='/v1/account/balance';
+  var nonce = '' + Date.parse(new Date());
+  var strForSign = endpoint + '/' + nonce + '/';
+  
+  var signatureStr = Utilities.base64Encode(strForSign, Utilities.Charset.UTF_8);
+  var digest = Utilities.computeHmacSha256Signature(signatureStr, secret, Utilities.Charset.UTF_8);
+  
+  var hexstr = '';
+  for (i = 0; i < digest.length; i++) 
+  {
+    var val = (digest[i]+256) % 256;
+    hexstr += ('0'+val.toString(16)).slice(-2);
+  }
+  
+  var url = baseUrl + endpoint;
+  var options = 
+      {
+        'headers' : 
+        {
+          'KC-API-KEY': key,
+          'KC-API-NONCE': nonce,
+          'KC-API-SIGNATURE': hexstr
+        }
+      }
+  
+  var jsonData = UrlFetchApp.fetch(url, options);
+  
+  var data = JSON.parse(jsonData.getContentText());
+  var array = [];
+ 
+  var index = 0;
+  for(var x in data.data)
+  {
+    var balance = parseFloat(data.data[x].balance);
+    if (balance > 0) 
+    {
+      var asset = data.data[x].coinType
+      array.push([asset, balance]);
+      index++;
+    }
+  }
+  
+  var ss = activeSpreadsheet.getSheetByName("Portfolio");
+  
+  var destinationRange = ss.getRange(2, 1, index, 2);
+  destinationRange.setValues(array);
+}
+
+function KCinviteRequest(payload)
+{  
+  var endpoint = '/v1/account/promotion/sum';
+  var nonce = '' + Date.parse(new Date());
+  var strForSign = endpoint + "/" + nonce + "/" + "coin=" + payload; 
+  var uri = baseUrl + endpoint + "?coin=" + payload;
+        
+  var signatureStr = Utilities.base64Encode(strForSign, Utilities.Charset.UTF_8);
+  var signature = Utilities.computeHmacSha256Signature(signatureStr, secret, Utilities.Charset.UTF_8);
+  
+  //KC-API-SIGNATURE in header..convert to Hex
+  var signatureResult = '';
+  for (i = 0; i < signature.length; i++) 
+  {
+    var val = (signature[i]+256) % 256;
+    signatureResult += ('0' + val.toString(16)).slice(-2);
+  }
+
+  var headers = {
+    "KC-API-KEY": key,
+    "KC-API-NONCE": nonce,
+    "KC-API-SIGNATURE": signatureResult
+  }
+  
+  var params = {
+    "headers": headers
+  }
+  
+  var response = UrlFetchApp.fetch(uri, params);
+  var dataAll = JSON.parse(response.getContentText());
+  
+  Logger.log(dataAll.data);
+  
+  if (dataAll.success = true)
+  {
+    return dataAll.data[0];
+  } 
+  else 
+  {
+    return dataAll.message;
+  }
+  
+}
+
+function Get_KuCoinPrice(payload)
+{
+
+  if(payload=='BTC'){
+    var url2 = "https://api.kucoin.com/v1/open/currencies?BTC=";
+
+    var response2 = UrlFetchApp.fetch(url2);
+    var text2 = response2.getContentText();
+    var myjson2 = JSON.parse(text2);
+    var price2 = myjson2.data.rates.BTC.USD;  
+    var priceinUSD = price2;
+    
+  }else{
+    var market = payload + "-" + "BTC";  
+    var url = "https://api.kucoin.com/v1/open/tick?symbol="+market;
+    var response = UrlFetchApp.fetch(url);
+    var text = response.getContentText();
+    var myjson = JSON.parse(text);
+    var price = myjson.data.lastDealPrice;
+  
+    var url2 = "https://api.kucoin.com/v1/open/currencies?BTC=";
+
+    var response2 = UrlFetchApp.fetch(url2);
+    var text2 = response2.getContentText();
+    var myjson2 = JSON.parse(text2);
+    var price2 = myjson2.data.rates.BTC.USD;  
+  
+    var priceinUSD = price*price2;   
+  }
+
+  
+  
+  
+return priceinUSD;
+}
+
+
+
+function json2array_(data)
+{
+  var results = [];
+  var keys = [];
+  var values = [];
+  for (var i in data)
+  {
+    for (var key in data[i])
+    {
+      if (i == 0) keys.push(key);
+      values.push(data[i][key]);
+    }
+    
+    if (i == 0)
+    {
+      results.push(keys);
+      keys = [];
+    }
+    
+    results.push(values);
+    values = [];
+  }
+  
+  return results;
+};
+
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('KUCOIN Extraction')
+      .addItem('Extraction', 'menuItem1')
+      .addItem('Extraction Specific Coin', 'menuItem2')
+      .addToUi();
+}
+
+function menuItem1() {
+  SpreadsheetApp.getUi() 
+  ExtractKCCoins();
+}
+
+function menuItem2() {
+  SpreadsheetApp.getUi() 
+  ExtractSpecificCoins();
+}
+
+
+
+
+
+function ExtractKCCoins()
+{
+  var values = SpreadsheetApp.getActiveSheet().getDataRange().getValues();
+  
+  // Clear contents of column H
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheets()[0];
+  for(n=9;n<values.length;++n){
+  var cellnumber = "H" + n;
+  var cellG = sheet.getRange(cellnumber);
+  cellG.setValue("Extraction in Progression");
+  }
+  
+
+  // Read Coin Symbol
+for(n=8;n<values.length;++n){
+var cell = values[n][1] ; // 1 is the index of the column starting from 0
+Logger.log(cell);
+  
+
+   var endpoint = '/v1/account/promotion/draw';
+   var nonce = '' + Date.parse(new Date());
+   var strForSign = endpoint + "/" + nonce + "/" + "coin=" + cell; 
+   var uri = baseUrl + endpoint + "?coin=" + cell;
+        
+   var signatureStr = Utilities.base64Encode(strForSign, Utilities.Charset.UTF_8);
+   var signature = Utilities.computeHmacSha256Signature(signatureStr, secret, Utilities.Charset.UTF_8);
+  
+//KC-API-SIGNATURE in header..convert to Hex
+  var signatureResult = '';
+  for (i = 0; i < signature.length; i++) 
+  {
+    var val = (signature[i]+256) % 256;
+    signatureResult += ('0' + val.toString(16)).slice(-2);
+  }
+
+  var headers = {
+    "KC-API-KEY": key,
+    "KC-API-NONCE": nonce,
+    "KC-API-SIGNATURE": signatureResult,
+  }
+  
+  var params = {
+    "method" : 'post',
+    "headers": headers,
+  }
+  
+  var response = UrlFetchApp.fetch(uri, params);
+  var dataAll = JSON.parse(response.getContentText());
+
+ //// use this to replace the below line 74, when deploying 
+////  cellG.setValue(dataAll.message);  
+  
+  // Write Response Message to H column
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheets()[0];
+  var n2 = n+1;
+  var cellnumber = "H" + n2;
+  var cellG = sheet.getRange(cellnumber);
+  cellG.setValue(dataAll.msg); 
+  // cellG.setValue(cell);  
+    
+}
+}
+
+function ExtractSpecificCoins()
+{
+  var values = SpreadsheetApp.getActiveSheet().getDataRange().getValues();
+  cell = values[2][6];
+  
+
+   var endpoint = '/v1/account/promotion/draw';
+   var nonce = '' + Date.parse(new Date());
+   var strForSign = endpoint + "/" + nonce + "/" + "coin=" + cell; 
+   var uri = baseUrl + endpoint + "?coin=" + cell;
+        
+   var signatureStr = Utilities.base64Encode(strForSign, Utilities.Charset.UTF_8);
+   var signature = Utilities.computeHmacSha256Signature(signatureStr, secret, Utilities.Charset.UTF_8);
+  
+//KC-API-SIGNATURE in header..convert to Hex
+  var signatureResult = '';
+  for (i = 0; i < signature.length; i++) 
+  {
+    var val = (signature[i]+256) % 256;
+    signatureResult += ('0' + val.toString(16)).slice(-2);
+  }
+
+  var headers = {
+    "KC-API-KEY": key,
+    "KC-API-NONCE": nonce,
+    "KC-API-SIGNATURE": signatureResult,
+  }
+  
+  var params = {
+    "method" : 'post',
+    "headers": headers,
+  }
+  
+  var response = UrlFetchApp.fetch(uri, params);
+  var dataAll = JSON.parse(response.getContentText());
+
+  
+SpreadsheetApp.getUi().alert(dataAll.msg + " " + cell + " Coin's Extraction Initiated");
+}
+  
+  
+  
+ 
